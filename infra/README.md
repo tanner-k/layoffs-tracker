@@ -32,6 +32,7 @@ curl -sfL https://get.k3s.io | sh -
 mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && sudo chown "$USER": ~/.kube/config
 sudo snap install helm --classic
 kubectl get nodes   # one node, Ready
+uname -m            # x86_64: the image is built for linux/amd64
 ```
 
 k3s brings its own containerd, local-path storage and metrics-server; the existing Docker is
@@ -71,12 +72,21 @@ grep -E '^(TYPESAFE_API_KEY|SEC_USER_AGENT)=' path/to/.env \
 ```bash
 helm repo add apache-airflow https://airflow.apache.org && helm repo update
 read -rsp "Airflow admin password: " AIRFLOW_ADMIN_PW; echo
+read -rsp "Postgres password (keep it: every upgrade needs the same one): " PG_PW; echo
 helm upgrade --install airflow apache-airflow/airflow --version 1.22.0 -n airflow \
   -f infra/airflow-values.yaml \
-  --set-string createUserJob.defaultUser.password="$AIRFLOW_ADMIN_PW" --timeout 15m
-unset AIRFLOW_ADMIN_PW
+  --set-string createUserJob.defaultUser.password="$AIRFLOW_ADMIN_PW" \
+  --set-string postgresql.auth.postgresPassword="$PG_PW" \
+  --set-string data.metadataConnection.pass="$PG_PW" --timeout 15m
+unset AIRFLOW_ADMIN_PW PG_PW
 kubectl get pods -n airflow   # all Running (jobs Completed)
+kubectl get pvc -n airflow    # layoffs-work and the chart's volumes all Bound
+kubectl auth can-i create pods -n airflow \
+  --as=system:serviceaccount:airflow:airflow-scheduler   # yes: tasks launch pods
 ```
+
+The two `--set-string` lines for Postgres must match: the chart's database takes the first,
+Airflow connects with the second.
 
 Check the DAG loaded:
 
@@ -121,14 +131,18 @@ numbers in the top-level README.
 ## 8. Go live
 
 Unpause `layoffs_monthly` in the dashboard. Catch-up runs the 2026-11-03 slot (data month
-2026-10). The `publish` task pushes `data: refresh through 2026-10` to `main`.
+2026-10). The `publish` task pushes `data: refresh through 2026-10` to `main`. During the first
+run, watch for pods killed for memory:
+
+```bash
+kubectl get events -n airflow --watch | grep -i -E "oom|evict"
+```
 
 ## Notes
 
 - **Branch protection:** `publish` pushes to `main` with the deploy key. If you protect `main`,
   let the deploy key bypass the rule, or the push fails (loudly; nothing half-published).
-- **Postgres password:** the chart's built-in Postgres keeps its default password. It is only
-  reachable inside the cluster. To change it, add
-  `--set-string postgresql.auth.postgresPassword=...` the same way as the admin password.
-- **Upgrades:** repeat the step 4 command. Helm regenerates the chart's own random keys; with
+- **Postgres password:** set once in step 4 and needed again on every upgrade. An upgrade
+  without it puts Airflow's side back to the chart default, and Airflow can no longer connect.
+- **Upgrades:** repeat the step 4 command with the same passwords. Helm regenerates the chart's own random keys; with
   no stored Airflow connections that only signs you out.

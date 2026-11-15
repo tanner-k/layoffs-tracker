@@ -17,6 +17,7 @@ IMAGE = "ghcr.io/tanner-k/layoffs-tracker:main"
 NAMESPACE = "airflow"
 REPO_URL = "git@github.com:tanner-k/layoffs-tracker.git"
 UID = 10001
+SECRET = "layoffs-secrets"
 # The month before the logical date (the run on 2026-11-03 processes 2026-10).
 RUN_MONTH = "{{ logical_date.subtract(months=1).strftime('%Y-%m') }}"
 
@@ -31,18 +32,36 @@ KEY = k8s.V1Volume(
 )
 WORK_MOUNT = k8s.V1VolumeMount(name="work", mount_path="/work")
 KEY_MOUNT = k8s.V1VolumeMount(name="deploy-key", mount_path="/keys", read_only=True)
-SECRETS = [k8s.V1EnvFromSource(secret_ref=k8s.V1SecretEnvSource(name="layoffs-secrets"))]
-GIT_SSH = {
-    "GIT_SSH_COMMAND": "ssh -i /keys/id_ed25519 -o UserKnownHostsFile=/keys/known_hosts "
-    "-o IdentitiesOnly=yes"
+GIT_SSH = k8s.V1EnvVar(
+    name="GIT_SSH_COMMAND",
+    value="ssh -i /keys/id_ed25519 -o UserKnownHostsFile=/keys/known_hosts -o IdentitiesOnly=yes",
+)
+# Non-root, no privilege escalation, no capabilities, default seccomp.
+LOCKED = {
+    "runAsNonRoot": True,
+    "allowPrivilegeEscalation": False,
+    "capabilities": {"drop": ["ALL"]},
+    "seccompProfile": {"type": "RuntimeDefault"},
 }
 RESOURCES = k8s.V1ResourceRequirements(
     requests={"cpu": "100m", "memory": "256Mi"}, limits={"cpu": "1", "memory": "768Mi"}
 )
 
 
-def step(name: str, *args: str, secrets: bool = False, git: bool = False) -> KubernetesPodOperator:
+def secret_env(*keys: str) -> list[k8s.V1EnvVar]:
+    """Only the named keys of the `layoffs-secrets` Secret, as environment variables."""
+    ref = k8s.V1SecretKeySelector
+    return [
+        k8s.V1EnvVar(name=k, value_from=k8s.V1EnvVarSource(secret_key_ref=ref(name=SECRET, key=k)))
+        for k in keys
+    ]
+
+
+def step(
+    name: str, *args: str, secrets: tuple[str, ...] = (), git: bool = False
+) -> KubernetesPodOperator:
     """One pod running `layoffs-tracker <name> --work /work <args>`."""
+    env = [*secret_env(*secrets), *([GIT_SSH] if git else [])]
     return KubernetesPodOperator(
         task_id=name.replace("-", "_"),
         name=f"layoffs-{name}",
@@ -52,9 +71,10 @@ def step(name: str, *args: str, secrets: bool = False, git: bool = False) -> Kub
         arguments=[name, "--work", "/work", *args],
         volumes=[WORK, KEY] if git else [WORK],
         volume_mounts=[WORK_MOUNT, KEY_MOUNT] if git else [WORK_MOUNT],
-        env_from=SECRETS if secrets else None,
-        env_vars=GIT_SSH if git else None,
+        env_vars=env or None,
         security_context={"runAsUser": UID, "runAsGroup": UID, "fsGroup": UID},
+        container_security_context=LOCKED,
+        automount_service_account_token=False,  # the steps never call the Kubernetes API
         container_resources=RESOURCES,
         in_cluster=True,
         get_logs=True,
@@ -74,8 +94,8 @@ with DAG(
 ):
     (
         step("checkout", "--repo-url", REPO_URL, git=True)
-        >> step("fetch-sec", "--run-month", RUN_MONTH, secrets=True)
-        >> step("label", secrets=True)
+        >> step("fetch-sec", "--run-month", RUN_MONTH, secrets=("SEC_USER_AGENT",))
+        >> step("label", secrets=("SEC_USER_AGENT", "TYPESAFE_API_KEY"))
         >> step("fetch-warn")
         >> step("build-metrics", "--run-month", RUN_MONTH)
         >> step("publish", git=True)

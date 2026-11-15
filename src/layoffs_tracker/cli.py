@@ -20,7 +20,7 @@ import polars as pl
 from layoffs_tracker.jev.api import MODEL, Transport, http_transport, load_api_key
 from layoffs_tracker.jev.label import MAX_CALLS, CallCapExceeded, label_new
 from layoffs_tracker.metrics import build_latest
-from layoffs_tracker.months import parse_month, rescan_window
+from layoffs_tracker.months import METHOD_SWITCH, parse_month, rescan_window
 from layoffs_tracker.publish import checkout, merge_filings, publish
 from layoffs_tracker.schema import FILINGS_SCHEMA
 from layoffs_tracker.sec import FILINGS_RAW_SCHEMA, Fetcher, fetch_month_filings
@@ -73,7 +73,10 @@ def cmd_fetch_sec(a: argparse.Namespace) -> None:
         else pl.DataFrame(schema=FILINGS_RAW_SCHEMA)
     )
     known = pl.read_parquet(filings_file(a.work), columns=["adsh"])["adsh"]
-    new = found.filter(~pl.col("adsh").is_in(known.implode()))
+    # EDGAR can return a filing dated before the window; paper months are never relabeled.
+    new = found.filter(
+        (pl.col("file_date") >= METHOD_SWITCH) & ~pl.col("adsh").is_in(known.implode())
+    )
     new.write_parquet(a.work / NEW)
     LOG.info("%d filings in %d months, %d new", found.height, len(months), new.height)
 

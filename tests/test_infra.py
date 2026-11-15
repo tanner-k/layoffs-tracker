@@ -48,3 +48,11 @@ def test_manifests() -> None:
     assert ns["kind"] == "Namespace" and ns["metadata"]["name"] == "airflow"
     assert pvc["metadata"] == {"name": "layoffs-work", "namespace": "airflow"}
     assert pvc["spec"]["storageClassName"] == "local-path"
+
+
+def test_parse_interval_is_where_airflow_3_reads_it(v: Any) -> None:
+    from airflow.configuration import conf
+
+    assert v["config"]["dag_processor"]["min_file_process_interval"] == 300
+    assert conf.has_option("dag_processor", "min_file_process_interval")
+    assert "min_file_process_interval" not in v["config"].get("scheduler", {})

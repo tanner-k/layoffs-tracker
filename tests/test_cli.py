@@ -96,6 +96,24 @@ def test_rerunning_an_older_month_keeps_data_through(pipeline: tuple[Path, Path]
     assert latest["data_through"] == "2026-11" and commit_count(bare) == 3
 
 
+def test_fetch_sec_drops_paper_era_hits(
+    pipeline: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bare, work = pipeline
+    fake = cli.make_fetcher
+
+    def with_paper_hit(w: Path) -> FakeFetcher:
+        f = fake(w)
+        assert isinstance(f, FakeFetcher)
+        f.search[f'"Item 2.05"|{METHOD_SWITCH}'].append(hit("p-1", "2026-09-30"))
+        return f
+
+    monkeypatch.setattr(cli, "make_fetcher", with_paper_hit)
+    main(["checkout", "--work", str(work), "--repo-url", str(bare)])
+    main(["fetch-sec", "--work", str(work), "--run-month", "2026-10"])
+    assert pl.read_parquet(work / "new_filings.parquet")["adsh"].to_list() == ["a-1", "a-2"]
+
+
 def test_fetch_sec_skips_known_filings(pipeline: tuple[Path, Path]) -> None:
     bare, work = pipeline
     run_month(bare, work, "2026-10")

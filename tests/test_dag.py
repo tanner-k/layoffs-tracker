@@ -48,17 +48,37 @@ def test_tasks_are_pods_from_the_tracker_image(dag: Any) -> None:
         assert t.container_resources.limits["memory"]
 
 
+def secret_keys(t: Any) -> list[str]:
+    refs = [e.value_from.secret_key_ref for e in (t.env_vars or []) if e.value_from]
+    assert all(r.name == "layoffs-secrets" for r in refs)
+    return sorted(r.key for r in refs)
+
+
 def test_secrets_reach_only_the_steps_that_need_them(dag: Any) -> None:
     def keys(t: Any) -> bool:
         return "/keys" in {m.mount_path for m in t.volume_mounts}
 
-    def env_secret(t: Any) -> bool:
-        return any(e.secret_ref.name == "layoffs-secrets" for e in (t.env_from or []))
-
     assert [t.task_id for t in dag.tasks if keys(t)] == ["checkout", "publish"]
-    assert [t.task_id for t in dag.tasks if env_secret(t)] == ["fetch_sec", "label"]
+    assert {t.task_id: secret_keys(t) for t in dag.tasks} == {
+        "checkout": [],
+        "fetch_sec": ["SEC_USER_AGENT"],
+        "label": ["SEC_USER_AGENT", "TYPESAFE_API_KEY"],
+        "fetch_warn": [],
+        "build_metrics": [],
+        "publish": [],
+    }
+    assert all(not t.env_from for t in dag.tasks)
     key_vol = next(v for v in dag.get_task("publish").volumes if v.secret)
     assert key_vol.secret.default_mode == 0o440
+
+
+def test_pods_are_locked_down(dag: Any) -> None:
+    for t in dag.tasks:
+        c = t.container_security_context
+        assert c["runAsNonRoot"] is True and c["allowPrivilegeEscalation"] is False
+        assert c["capabilities"] == {"drop": ["ALL"]}
+        assert c["seccompProfile"] == {"type": "RuntimeDefault"}
+        assert t.automount_service_account_token is False
 
 
 @pytest.mark.parametrize(

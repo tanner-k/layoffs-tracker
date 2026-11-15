@@ -74,6 +74,6 @@ dags:
 config:
   core:
     load_examples: "False"
-  scheduler:
-    # One monthly job: parse rarely.
+  dag_processor:
+    # One monthly job: parse rarely. (Airflow 3 reads this here, not under [scheduler].)
     min_file_process_interval: 300
