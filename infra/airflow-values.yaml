@@ -1,0 +1,79 @@
+# Helm values for apache-airflow/airflow 1.22.0 (Airflow 3.2.2) on single-node k3s.
+# Slim: LocalExecutor runs tasks inside the scheduler; each task launches one pod.
+# No Celery workers, Redis, Flower, StatsD, PgBouncer or triggerer.
+executor: LocalExecutor
+airflowVersion: "3.2.2"
+defaultAirflowTag: "3.2.2"
+
+scheduler:
+  replicas: 1
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  logGroomerSidecar:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 96Mi}
+
+apiServer:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 384Mi}
+    limits: {cpu: "1", memory: 768Mi}
+  service:
+    type: ClusterIP  # never exposed; reach it with kubectl port-forward
+
+dagProcessor:
+  enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  logGroomerSidecar:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 96Mi}
+
+triggerer: {enabled: false}
+statsd: {enabled: false}
+redis: {enabled: false}
+flower: {enabled: false}
+pgbouncer: {enabled: false}
+
+migrateDatabaseJob:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+
+createUserJob:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+
+# The chart's built-in Postgres (metadata database only).
+postgresql:
+  enabled: true
+  primary:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 384Mi}
+    persistence:
+      size: 2Gi
+
+dags:
+  gitSync:
+    enabled: true
+    repo: https://github.com/tanner-k/layoffs-tracker.git
+    branch: main
+    rev: HEAD
+    subPath: dags
+    period: 5m
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+
+config:
+  core:
+    load_examples: "False"
+  dag_processor:
+    # One monthly job: parse rarely. (Airflow 3 reads this here, not under [scheduler].)
+    min_file_process_interval: 300

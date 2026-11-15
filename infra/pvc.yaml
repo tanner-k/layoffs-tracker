@@ -1,0 +1,13 @@
+# Shared work volume for the tracker's pod tasks: SEC and Jev caches, step outputs, the
+# data-repo clone. k3s's local-path provisioner keeps it on storageguy's disk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: layoffs-work
+  namespace: airflow
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
