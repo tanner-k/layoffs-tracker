@@ -63,8 +63,9 @@ def out() -> dict[str, Any]:
 
 
 def quarter(out: dict[str, Any], label: str) -> dict[str, Any]:
-    (q,) = [q for q in out["ai_quarterly"] if q["quarter"] == label]
-    return q
+    rows: list[dict[str, Any]] = [q for q in out["ai_quarterly"] if q["quarter"] == label]
+    assert len(rows) == 1
+    return rows[0]
 
 
 def test_quarter_shares(out: dict[str, Any]) -> None:

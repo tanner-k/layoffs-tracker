@@ -92,7 +92,7 @@ def build_latest(
     sources: Mapping[str, object],
     data_through: date,
     generated_at: datetime,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """The `latest.json` payload: original filings only, every series ending at `data_through`.
 
     `warn` is `warn.national_month`'s frame; `data_through` is the first day of the last
