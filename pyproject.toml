@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Monthly tracker of AI-cited layoffs in SEC filings and WARN notices"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "polars>=2.1.0",
+]
 
 [dependency-groups]
 dev = [
