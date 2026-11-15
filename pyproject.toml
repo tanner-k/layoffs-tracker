@@ -1,0 +1,40 @@
+[project]
+name = "layoffs-tracker"
+version = "0.1.0"
+description = "Monthly tracker of AI-cited layoffs in SEC filings and WARN notices"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.17",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+extend-exclude = ["tutorials", "docs/superpowers"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Coverage is opt-in (`pytest --cov`) so `oni test` single-target runs never
+# trip the 80% floor; scripts/check.sh turns it on with --cov-fail-under=80.
+[tool.coverage.run]
+source_pkgs = ["layoffs_tracker"]

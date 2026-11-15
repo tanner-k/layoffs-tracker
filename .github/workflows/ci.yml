@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint · Typecheck · Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install
+        run: uv sync --locked
+
+      # The same gate as local: lint, format, typecheck, tests with the 80%
+      # coverage floor, script tests, scaffold check. Writes junit.xml.
+      - name: Check
+        run: scripts/check.sh
+
+      # Onigiri (`oni sync-ci`) pulls this artifact with `gh run download --name
+      # junit` and maps each <testcase> node id onto the task that carries it as
+      # its test target. `always()` so a red run still reports *which* tests were red.
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: junit
+          path: junit.xml
+          if-no-files-found: warn
+
+  docs-sync:
+    name: CLAUDE.md == AGENTS.md
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Verify CLAUDE.md and AGENTS.md are identical
+        run: |
+          # AGENTS.md is normally a symlink to CLAUDE.md; this catches anyone
+          # replacing it with a divergent real file.
+          if ! diff -q CLAUDE.md AGENTS.md; then
+            echo "::error::CLAUDE.md and AGENTS.md must be identical."
+            exit 1
+          fi

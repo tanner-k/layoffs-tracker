@@ -1,0 +1,63 @@
+# Onigiri project config — read by `oni` from this repo's root.
+#
+# WHY THIS FILE IS GIT-TRACKED, AND MUST STAY THAT WAY
+# ----------------------------------------------------
+# Onigiri stores tasks in a local database that an LLM can write to (a voice memo
+# gets transcribed, parsed, and filed as rows). If the test *command* also came
+# from that database, a mumble would be remote code execution.
+#
+# So the trust boundary is split, and this file is the trusted half:
+#
+#   the COMMAND  → here, git-tracked, code-reviewed   → an agent cannot change it
+#   the TARGET   → the database (`item.test_target`)  → an agent can change it
+#
+# Never move these commands into the database, and never let a tool rewrite this
+# file automatically. If it stops being reviewed, the boundary is gone.
+#
+# `test` TAKES TWO PLACEHOLDERS, TWO TRUST LEVELS
+# ------------------------------------------------
+#   {target}  — untrusted. Comes from item.test_target, which an LLM can write.
+#               Must be its own bare argv element: never quote it ("{target}")
+#               and never glue it to other text (--filter={target}) — either
+#               breaks the swap described below. No pipes, `&&`, redirection,
+#               or globs — the command never sees a shell. Need those? Put
+#               them in a script and call the script.
+#
+#   {report}  — trusted. A temp path Onigiri generates for this run; it never
+#               comes from the database. Because it's trusted, it MAY be glued
+#               inside an element, e.g. `--junitxml={report}`.
+#
+# WHY {report} EXISTS: `go test -run`, `jest -t`, and `cargo test` all exit 0
+# when {target} matches zero tests, so a typo'd or stale target runs nothing
+# and still looks green. The verdict is therefore never the process exit code
+# — it's whether {target}'s node id shows up as a passing <testcase> in the
+# JUnit report written to {report}. A command that over-matches {target} (runs
+# more tests than asked) is no longer a correctness bug either: Onigiri reads
+# only the one <testcase> it asked about and ignores the rest. See
+# docs/testing.md for the verified transcripts and the per-stack node id
+# mapping.
+#
+# HOW {target} / {report} ARE SUBSTITUTED
+# ------------------------------------------
+# Onigiri splits the command string once (shlex), then replaces each
+# placeholder *element* with its literal value — never re-split, never sees a
+# shell. A target containing `;`, spaces, or `$(…)` lands as one inert argv
+# element.
+
+[project]
+# Short uppercase slug. Immutable — item keys (`AUTH-42`) are derived from it.
+key = "LT"
+
+[commands]
+# Runs at least {target}'s test and writes a JUnit report to {report}.
+# Verdict comes from {target}'s <testcase> in that report, not from this
+# command's exit code — see the header comment and docs/testing.md.
+test    = "uv run pytest --junitxml={report} -- {target}"
+# List matching tests without running them. Rejects a bad target at write time.
+collect = "uv run pytest --collect-only -q -- {target}"
+# Whole-repo lint. Takes no {target}.
+lint    = "uv run ruff check ."
+
+[limits]
+# Seconds. A test run that exceeds this is killed and recorded as red.
+timeout = 300

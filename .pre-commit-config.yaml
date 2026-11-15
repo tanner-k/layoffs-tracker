@@ -1,0 +1,30 @@
+# Runs on every commit. Install once per clone: uv run pre-commit install
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+  # Local hooks run the project's own ruff, so the hooks, scripts/check.sh and CI
+  # all use the one version pinned in uv.lock. --force-exclude makes ruff honor the
+  # config's excludes for the files pre-commit names on the command line.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        exclude: ^tutorials/
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        exclude: ^tutorials/

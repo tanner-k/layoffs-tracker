@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.venv/
+
+# Build output
+dist/
+build/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test / coverage
+coverage/
+.coverage
+junit.xml
+
+# Python caches
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Tool caches
+.eslintcache
+.prettiercache
