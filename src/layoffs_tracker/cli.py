@@ -22,6 +22,7 @@ from layoffs_tracker.jev.label import MAX_CALLS, CallCapExceeded, label_new
 from layoffs_tracker.metrics import build_latest
 from layoffs_tracker.months import parse_month, rescan_window
 from layoffs_tracker.publish import checkout, merge_filings, publish
+from layoffs_tracker.schema import FILINGS_SCHEMA
 from layoffs_tracker.sec import FILINGS_RAW_SCHEMA, Fetcher, fetch_month_filings
 from layoffs_tracker.seed import FILINGS_PATH, write_seed
 from layoffs_tracker.warn import FIRST_YEAR, balanced_states, download, latest_sha, load_notices
@@ -79,11 +80,14 @@ def cmd_fetch_sec(a: argparse.Namespace) -> None:
 
 def cmd_label(a: argparse.Namespace) -> None:
     new = pl.read_parquet(a.work / NEW)
-    transport = make_transport()
+    if new.height == 0:  # a quiet month needs neither Jev nor its key
+        pl.DataFrame(schema=FILINGS_SCHEMA).write_parquet(a.work / LABELED)
+        LOG.info("nothing new to label")
+        return
     out = label_new(
         new,
         make_fetcher(a.work),
-        transport,
+        make_transport(),
         a.work / "jev_cache",
         today=date.today(),
         max_calls=a.max_calls,

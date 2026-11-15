@@ -101,6 +101,21 @@ def test_label_respects_max_calls(pipeline: tuple[Path, Path]) -> None:
         main(["label", "--work", str(work), "--max-calls", "0"])
 
 
+def test_label_with_nothing_new_needs_no_key(
+    pipeline: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bare, work = pipeline
+    main(["checkout", "--work", str(work), "--repo-url", str(bare)])
+    main(["fetch-sec", "--work", str(work), "--run-month", "2026-09"])  # paper month: no rescan
+
+    def no_key() -> FakeTransport:
+        raise AssertionError("label asked for the Jev key with nothing to label")
+
+    monkeypatch.setattr(cli, "make_transport", no_key)
+    main(["label", "--work", str(work)])
+    assert pl.read_parquet(work / "labeled.parquet").height == 0
+
+
 def test_bad_run_month_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["fetch-sec", "--work", str(tmp_path), "--run-month", "October"])
