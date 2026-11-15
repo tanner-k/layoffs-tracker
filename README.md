@@ -110,6 +110,7 @@ Decisions: [docs/decisions/](docs/decisions/). Server setup: [infra/README.md](i
 | `uv run layoffs-tracker --help` | The pipeline steps (each takes `--work DIR`) |
 | `uv run layoffs-tracker seed` | Rebuild `data/filings.parquet` from the paper's labels |
 | `uv run python scripts/port_check.py` | Live check: SEC search for Jul-Sep 2026 matches the paper |
+| `uv run python scripts/jev_check.py` | Live check: the tracker's Jev labels vs the paper's Jev run, Jan-Sep 2026 |
 
 Run one month by hand, in DAG order (needs both variables below):
 
@@ -145,8 +146,10 @@ a comment, and list it here.
 | `ai_quarterly`, `ai_yearly` | `total`, `ai_true`, `unresolved`, `share_low` = ai_true/total, `share_high` = (ai_true+unresolved)/total, per period and `method`; 2026 has a paper row and a Jev row |
 | `warn_monthly` | WARN notices, workers (known counts) and notices missing a count, for `sources.warn_states` |
 
-Gotcha: on the paper's own filings Jev alone found fewer AI-cited filings than the audited
-labels (2026 Jan-Sep: 17 vs 26, 14 unresolved), so compare Jev quarters against `share_high`.
+Gotcha: on the paper's own filings, the paper's Jev run found fewer AI-cited filings than the
+audited labels (2026 Jan-Sep: 17 vs 26, 14 unresolved), so compare Jev quarters against
+`share_high`. That run asked Jev ~25 questions per filing; the tracker asks only the AI question.
+`scripts/jev_check.py` compares the two on the same filings (live; needs both variables).
 
 ## Footprint
 

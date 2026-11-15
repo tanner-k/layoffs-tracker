@@ -15,6 +15,16 @@ uv run python scripts/port_check.py
 
 Expected: `only live: []` and `only paper: []`. A difference is explained or fixed first.
 
+Then compare the tracker's Jev labeler with the paper's Jev run on the same filings (a few Jev
+calls):
+
+```bash
+uv run python scripts/jev_check.py
+```
+
+If the tracker's counts differ much from the paper's Jev run (17 AI-cited, 14 unresolved), say so
+on the page before go-live.
+
 ## 1. k3s and Helm (Tanner, sudo)
 
 ```bash

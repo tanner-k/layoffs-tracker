@@ -88,3 +88,17 @@ def test_missing_api_key_names_the_variable(monkeypatch: pytest.MonkeyPatch) -> 
 def test_api_key_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TYPESAFE_API_KEY", " k-123 ")
     assert load_api_key() == "k-123"
+
+
+def test_cap_is_checked_before_any_call(tmp_path: Path) -> None:
+    # 33 filings that mention AI need two requests; a cap of 1 must spend nothing,
+    # or each Airflow retry would spend another cap's worth.
+    adshs = [f"b-{i}" for i in range(33)]
+    hits = [hit(a, f"2026-10-{i % 28 + 1:02d}") for i, a in enumerate(adshs)]
+    fake = FakeFetcher(tmp_path / "sec", {f'"Item 2.05"|{OCT[0]}': hits})
+    fake.docs = {f"/{a.replace('-', '')}/d1.htm": filing_doc(DOCS["a-1"]) for a in adshs}
+    new = fetch_month_filings(fake, [OCT])
+    t = FakeTransport()
+    with pytest.raises(CallCapExceeded, match="2 requests"):
+        label_new(new, fake, t, tmp_path / "jev", max_calls=1, today=TODAY)
+    assert t.calls == 0

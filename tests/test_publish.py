@@ -88,3 +88,17 @@ def test_publish_fails_loudly_when_push_is_refused(clone: tuple[Path, Path]) -> 
             publish(repo, MSG)
     finally:
         subprocess.run(["chmod", "-R", "u+w", str(bare)], check=True)
+
+
+def test_publish_retry_pushes_a_commit_left_by_a_failed_push(clone: tuple[Path, Path]) -> None:
+    bare, repo = clone
+    (repo / "data").mkdir()
+    (repo / "data" / "latest.json").write_text("{}\n")
+    subprocess.run(["chmod", "-R", "a-w", str(bare)], check=True)
+    try:
+        with pytest.raises(RuntimeError, match="git push failed"):
+            publish(repo, MSG)
+    finally:
+        subprocess.run(["chmod", "-R", "u+w", str(bare)], check=True)
+    assert publish(repo, MSG) is True  # Airflow's retry
+    assert commit_count(bare) == 2

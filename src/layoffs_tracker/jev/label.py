@@ -273,11 +273,13 @@ def label_new(
     views = [build_view(listing_from_row(r), fetch) for r in rows]
     units = [Unit(v.adsh, v.company, v.filed, v.ai_sentences) for v in views if v.ai_sentences]
     bodies = pack(units)
-    results = run_batches(bodies, transport, cache_dir, max_calls)
-    if skipped := results.count(None):
+    # Check the cap before any call: a retried task resumes from the cache, so failing midway
+    # would let each Airflow retry spend another cap's worth.
+    if (needed := sum(not cache_path(b, cache_dir).is_file() for b in bodies)) > max_calls:
         raise CallCapExceeded(
-            f"Jev call cap of {max_calls} reached: {skipped} of {len(bodies)} requests not sent"
+            f"Jev call cap of {max_calls}: this run needs {needed} requests; none sent"
         )
+    results = run_batches(bodies, transport, cache_dir, max_calls)
     answers = {k: a for r in results if r for k, a in r.answers.items()}
     out = []
     for r, v in zip(rows, views, strict=True):

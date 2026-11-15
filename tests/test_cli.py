@@ -86,6 +86,16 @@ def test_pipeline_publishes_once_and_reruns_are_no_ops(pipeline: tuple[Path, Pat
     assert again.equals(filings)
 
 
+def test_rerunning_an_older_month_keeps_data_through(pipeline: tuple[Path, Path]) -> None:
+    bare, work = pipeline
+    run_month(bare, work, "2026-10")
+    run_month(bare, work, "2026-11")
+    assert commit_count(bare) == 3
+    run_month(bare, work, "2026-10")  # e.g. a failed October run cleared after November's
+    latest = json.loads((work / "repo" / "data" / "latest.json").read_text())
+    assert latest["data_through"] == "2026-11" and commit_count(bare) == 3
+
+
 def test_fetch_sec_skips_known_filings(pipeline: tuple[Path, Path]) -> None:
     bare, work = pipeline
     run_month(bare, work, "2026-10")

@@ -51,12 +51,13 @@ def checkout(repo_url: str, dest: Path) -> None:
 
 
 def publish(repo_dir: Path, message: str) -> bool:
-    """Commit changes under `data/` and push them. Returns False when nothing changed."""
-    if not (repo_dir / "data").is_dir():
+    """Commit changes under `data/` and push every commit origin lacks, including one left by
+    a failed push on an earlier attempt. Returns False when there was nothing to push."""
+    if (repo_dir / "data").is_dir():
+        git(repo_dir, "add", "--", "data")
+        if git(repo_dir, "diff", "--cached", "--name-only").strip():
+            git(repo_dir, *BOT, "commit", "-q", "-m", message)
+    if not git(repo_dir, "rev-list", f"origin/{BRANCH}..HEAD").strip():
         return False
-    git(repo_dir, "add", "--", "data")
-    if not git(repo_dir, "diff", "--cached", "--name-only").strip():
-        return False
-    git(repo_dir, *BOT, "commit", "-q", "-m", message)
     git(repo_dir, "push", "-q", "origin", f"HEAD:{BRANCH}")
     return True

@@ -120,14 +120,19 @@ def cmd_build_metrics(a: argparse.Namespace) -> None:
     merged = merge_filings(old, pl.read_parquet(a.work / LABELED))
     merged.write_parquet(filings_file(a.work))
     notices = pl.read_parquet(a.work / NOTICES)
-    states = balanced_states(notices, FIRST_YEAR, a.run_month)
+    # Re-running an older month must not move the page backwards.
+    through = a.run_month
+    if latest_file(a.work).exists():
+        prior = json.loads(latest_file(a.work).read_text())["data_through"]
+        through = max(through, parse_month(prior))
+    states = balanced_states(notices, FIRST_YEAR, through)
     sources = {
         "jev_model": MODEL,
         "kadoa_sha": (a.work / KADOA_SHA).read_text().strip(),
         "warn_states": states,
     }
-    warn = warn_national_month(notices, states, a.run_month)
-    latest = build_latest(merged, warn, sources, a.run_month, datetime.now(UTC))
+    warn = warn_national_month(notices, states, through)
+    latest = build_latest(merged, warn, sources, through, datetime.now(UTC))
     latest = keep_generated_at(json.loads(json.dumps(latest)), latest_file(a.work))
     latest_file(a.work).write_text(json.dumps(latest, indent=1) + "\n")
     LOG.info(
