@@ -67,6 +67,20 @@ grep -E '^(TYPESAFE_API_KEY|SEC_USER_AGENT)=' path/to/.env \
   | ssh storageguy 'kubectl create secret generic layoffs-secrets -n airflow --from-env-file=/dev/stdin'
 ```
 
+Phone alerts. Install the **ntfy** app on your phone, then make an unguessable topic. The topic
+name is the only thing protecting it, so it lives in a Secret and nowhere else:
+
+```bash
+T="layoffs-$(openssl rand -hex 12)"
+kubectl create secret generic layoffs-alerts -n airflow --from-literal=url="https://ntfy.sh/$T"
+echo "In the ntfy app, subscribe to: $T"
+curl -s -d "Test from storageguy" -H "Title: Layoffs tracker: test" "https://ntfy.sh/$T" >/dev/null
+unset T
+```
+
+Your phone should buzz with "Layoffs tracker: test". Create this Secret before step 4: every
+Airflow pod reads it and will not start without it.
+
 ## 4. Airflow
 
 ```bash
@@ -77,7 +91,9 @@ helm upgrade --install airflow apache-airflow/airflow --version 1.22.0 -n airflo
   -f infra/airflow-values.yaml \
   --set-string createUserJob.defaultUser.password="$AIRFLOW_ADMIN_PW" \
   --set-string postgresql.auth.postgresPassword="$PG_PW" \
-  --set-string data.metadataConnection.pass="$PG_PW" --timeout 15m
+  --set-string data.metadataConnection.pass="$PG_PW" \
+  --set-string config.api.base_url="https://$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//'):8443" \
+  --timeout 15m
 unset AIRFLOW_ADMIN_PW PG_PW
 kubectl get pods -n airflow   # all Running (jobs Completed)
 kubectl get pvc -n airflow    # layoffs-work and the chart's volumes all Bound
@@ -86,7 +102,8 @@ kubectl auth can-i create pods -n airflow \
 ```
 
 The two `--set-string` lines for Postgres must match: the chart's database takes the first,
-Airflow connects with the second.
+Airflow connects with the second. `base_url` makes the log links in failure alerts open the
+dashboard from step 6.
 
 Check the DAG loaded:
 
@@ -106,16 +123,27 @@ Public, so k3s pulls it without credentials. Check from storageguy:
 sudo k3s crictl pull ghcr.io/tanner-k/layoffs-tracker:main
 ```
 
-## 6. Dashboard (never public)
+## 6. Dashboard over Tailscale (never public)
 
-The API server is `ClusterIP`. From the **Mac**:
+The API server stays `ClusterIP`. Tailscale serves it on port 8443 to your tailnet only, next to
+the app you already serve at `/`:
+
+```bash
+IP=$(kubectl get svc -n airflow airflow-api-server -o jsonpath='{.spec.clusterIP}')
+sudo tailscale serve --bg --https=8443 "http://$IP:8080"
+tailscale serve status   # :8443 (tailnet only) and your existing / route
+```
+
+Open `https://storageguy.<your-tailnet>.ts.net:8443` from the Mac or the phone, with Tailscale
+on, and sign in as `admin`. Never use `tailscale funnel` for it; that would make it public.
+`kubectl get svc -n airflow` must show no `NodePort` or `LoadBalancer`. If the Helm release is
+ever reinstalled, the service gets a new IP: run the two lines again.
+
+Fallback without Tailscale serve, from the **Mac**:
 
 ```bash
 ssh -L 8080:localhost:8080 storageguy 'kubectl port-forward -n airflow svc/airflow-api-server 8080:8080'
 ```
-
-Open http://localhost:8080 and sign in as `admin`. `kubectl get svc -n airflow` must show no
-`NodePort` or `LoadBalancer`.
 
 ## 7. Measure memory
 
@@ -131,7 +159,17 @@ numbers in the top-level README.
 ## 8. Go live
 
 Unpause `layoffs_monthly` in the dashboard. Catch-up runs the 2026-11-03 slot (data month
-2026-10). The `publish` task pushes `data: refresh through 2026-10` to `main`. During the first
+2026-10). The `publish` task pushes `data: refresh through 2026-10` to `main`.
+
+What the phone tells you each month:
+
+| Alert | Meaning |
+|---|---|
+| "Layoffs tracker: 2026-10 done" (low priority) | All six steps succeeded |
+| "Layoffs tracker: label failed" (high priority) | That step failed after its 2 retries; nothing was published. The alert links to the log |
+| No alert by the 4th | The run did not happen: open the dashboard |
+
+Retries are silent; only the last failure alerts. During the first
 run, watch for pods killed for memory:
 
 ```bash

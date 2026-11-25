@@ -56,3 +56,12 @@ def test_parse_interval_is_where_airflow_3_reads_it(v: Any) -> None:
     assert v["config"]["dag_processor"]["min_file_process_interval"] == 300
     assert conf.has_option("dag_processor", "min_file_process_interval")
     assert "min_file_process_interval" not in v["config"].get("scheduler", {})
+
+
+def test_alert_url_reaches_every_airflow_container(v: Any) -> None:
+    # The scheduler runs task failure callbacks; the DAG processor runs the success callback.
+    assert {
+        "envName": "LAYOFFS_ALERT_URL",
+        "secretName": "layoffs-alerts",
+        "secretKey": "url",
+    } in v["secret"]

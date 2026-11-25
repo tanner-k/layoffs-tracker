@@ -2,11 +2,19 @@
 
 Runs at 09:00 America/Denver on the 3rd of each month for the month before. Each task is a
 pod from the tracker image sharing the `layoffs-work` volume; Airflow only schedules.
+A task that fails after its retries, and each finished run, push a phone alert through the
+ntfy topic in LAYOFFS_ALERT_URL (a Kubernetes Secret; see infra/README.md).
 """
 
 from __future__ import annotations
 
+import logging
+import os
+import urllib.error
+import urllib.request
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Any
 
 import pendulum
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
@@ -43,9 +51,53 @@ LOCKED = {
     "capabilities": {"drop": ["ALL"]},
     "seccompProfile": {"type": "RuntimeDefault"},
 }
+ALERT_ENV = "LAYOFFS_ALERT_URL"
+LOG = logging.getLogger(__name__)
 RESOURCES = k8s.V1ResourceRequirements(
     requests={"cpu": "100m", "memory": "256Mi"}, limits={"cpu": "1", "memory": "768Mi"}
 )
+
+
+def notify(title: str, message: str, priority: int, tags: str) -> None:
+    """Push one alert to the ntfy topic in LAYOFFS_ALERT_URL. Never raises: a lost alert must
+    not fail a task. The URL is the secret (an unguessable topic), so it is never logged."""
+    url = os.environ.get(ALERT_ENV, "").strip()
+    if not url:
+        LOG.warning("%s is not set; alert not sent: %s", ALERT_ENV, title)
+        return
+    headers = {"Title": title, "Priority": str(priority), "Tags": tags}
+    req = urllib.request.Request(url, data=message.encode(), method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except (urllib.error.URLError, OSError) as err:
+        LOG.warning("alert not sent (%s): %s", type(err).__name__, title)
+
+
+def data_month(context: Mapping[str, Any]) -> str:
+    """The run's data month: the month before its logical date."""
+    when = context.get("logical_date") or getattr(context.get("dag_run"), "logical_date", None)
+    return when.subtract(months=1).strftime("%Y-%m") if when else "unknown month"
+
+
+def on_task_failure(context: Mapping[str, Any]) -> None:
+    ti = context["ti"]
+    notify(
+        f"Layoffs tracker: {ti.task_id} failed",
+        f"Data month {data_month(context)}, try {ti.try_number}; nothing was published. "
+        f"Log: {ti.log_url}",
+        priority=4,
+        tags="warning",
+    )
+
+
+def on_run_success(context: Mapping[str, Any]) -> None:
+    notify(
+        f"Layoffs tracker: {data_month(context)} done",
+        "All six steps succeeded. The portfolio page picks it up at Monday's rebuild.",
+        priority=2,
+        tags="white_check_mark",
+    )
 
 
 def secret_env(*keys: str) -> list[k8s.V1EnvVar]:
@@ -88,7 +140,12 @@ with DAG(
     start_date=pendulum.datetime(2026, 11, 1, tz="America/Denver"),
     catchup=True,
     max_active_runs=1,
-    default_args={"retries": 2, "retry_delay": timedelta(minutes=10)},
+    default_args={
+        "retries": 2,
+        "retry_delay": timedelta(minutes=10),
+        "on_failure_callback": on_task_failure,  # after the last retry only
+    },
+    on_success_callback=on_run_success,
     tags=["layoffs-tracker"],
     doc_md=__doc__,
 ):

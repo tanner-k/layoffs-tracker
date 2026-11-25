@@ -2,6 +2,13 @@
 # Slim: LocalExecutor runs tasks inside the scheduler; each task launches one pod.
 # No Celery workers, Redis, Flower, StatsD, PgBouncer or triggerer.
 executor: LocalExecutor
+
+# Phone alerts: every Airflow container gets the ntfy URL from the layoffs-alerts Secret.
+# The scheduler runs task failure callbacks; the DAG processor runs the run-success one.
+secret:
+  - envName: LAYOFFS_ALERT_URL
+    secretName: layoffs-alerts
+    secretKey: url
 airflowVersion: "3.2.2"
 defaultAirflowTag: "3.2.2"
 

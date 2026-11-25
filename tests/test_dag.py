@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import io
+import urllib.error
+import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import jinja2
@@ -94,3 +98,76 @@ def test_run_month_is_the_month_before_the_logical_date(
     args = dag.get_task("fetch_sec").arguments
     template = args[args.index("--run-month") + 1]
     assert jinja2.Template(template).render(logical_date=logical) == month
+
+
+ALERT_URL = "https://ntfy.example/topic-x"
+NOV_RUN = pendulum.datetime(2026, 11, 3, 16, tz="UTC")
+
+
+def first(callbacks: Any) -> Any:
+    return callbacks[0] if isinstance(callbacks, list) else callbacks
+
+
+class _Resp(io.BytesIO):
+    def __enter__(self) -> _Resp:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+@pytest.fixture
+def sent(monkeypatch: pytest.MonkeyPatch) -> list[urllib.request.Request]:
+    calls: list[urllib.request.Request] = []
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float) -> _Resp:
+        calls.append(req)
+        return _Resp(b"")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("LAYOFFS_ALERT_URL", ALERT_URL)
+    return calls
+
+
+def test_every_task_alerts_on_final_failure(dag: Any) -> None:
+    assert all(t.on_failure_callback for t in dag.tasks)
+    assert not any(t.on_retry_callback for t in dag.tasks)  # retries stay quiet
+
+
+def test_failure_alert_names_task_month_and_log(dag: Any, sent: list[Any]) -> None:
+    ti = SimpleNamespace(task_id="label", try_number=3, log_url="https://airflow.example/log")
+    first(dag.get_task("label").on_failure_callback)({"ti": ti, "logical_date": NOV_RUN})
+    (req,) = sent
+    assert req.full_url == ALERT_URL and req.get_method() == "POST"
+    assert req.get_header("Title") == "Layoffs tracker: label failed"
+    assert req.get_header("Priority") == "4"
+    body = req.data.decode()
+    assert "2026-10" in body and "try 3" in body and "https://airflow.example/log" in body
+
+
+def test_success_alert_after_a_full_run(dag: Any, sent: list[Any]) -> None:
+    first(dag.on_success_callback)({"dag_run": SimpleNamespace(logical_date=NOV_RUN)})
+    (req,) = sent
+    assert req.get_header("Title") == "Layoffs tracker: 2026-10 done"
+    assert req.get_header("Priority") == "2"
+
+
+def test_alert_without_url_is_skipped(dag: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LAYOFFS_ALERT_URL", raising=False)
+
+    def no_send(*args: Any, **kwargs: Any) -> _Resp:
+        raise AssertionError("an alert was sent with no URL configured")
+
+    monkeypatch.setattr(urllib.request, "urlopen", no_send)
+    first(dag.on_success_callback)({"logical_date": NOV_RUN})
+
+
+def test_a_failed_alert_never_fails_the_task(dag: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LAYOFFS_ALERT_URL", ALERT_URL)
+
+    def down(*args: Any, **kwargs: Any) -> _Resp:
+        raise urllib.error.URLError("ntfy unreachable")
+
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    ti = SimpleNamespace(task_id="publish", try_number=3, log_url="x")
+    first(dag.get_task("publish").on_failure_callback)({"ti": ti, "logical_date": NOV_RUN})
