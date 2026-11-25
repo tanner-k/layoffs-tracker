@@ -69,7 +69,7 @@ exactly the zero-match case above.
 
 | Runner | Runs in | Node id looks like | `test` command |
 |---|---|---|---|
-| pytest | repo root (python) · `backend/` (web-api) | `tests/test_core.py::test_greet_trims_name` | `uv run pytest --junitxml={report} -- {target}` |
+| pytest | repo root (python) · `backend/` (web-api) | `tests/test_cli.py::test_help_lists_subcommands` | `uv run pytest --junitxml={report} -- {target}` |
 | vitest | `frontend/` (web-api) | `src/lib/greet.test.ts::trims surrounding whitespace` | `npx --no vitest run <file> --reporter=junit --outputFile={report}` |
 
 pytest runs exactly the node id (plus any parametrized variants); vitest runs
